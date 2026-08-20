@@ -1,0 +1,23 @@
+name: mixer_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.10.0
+
+workspace:
+  - packages/mixer_dart
+
+dev_dependencies:
+  melos: ^7.0.0
+
+melos:
+  name: mixer
+  scripts:
+    analyze:
+      run: dart analyze packages/mixer_dart
+    format:
+      run: dart format --output none --set-exit-if-changed packages/mixer_dart
+    format:fix:
+      run: dart format packages/mixer_dart
+    test:
+      run: dart test packages/mixer_dart
