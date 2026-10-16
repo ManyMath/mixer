@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'channel_matrix.dart';
 import 'pcm_clip.dart';
 import 'pcm_format.dart';
 
@@ -292,6 +293,7 @@ final class MixerVoice {
   final PcmClip clip;
 
   final Completer<void> _completion = Completer<void>();
+  late final Float64List _resampled = Float64List(clip.format.channels);
   MixerVoiceState _state = MixerVoiceState.playing;
   double _sourceFrame = 0;
   double _gain;
@@ -385,6 +387,7 @@ final class MixerVoice {
       return;
     }
     final ratio = clip.format.sampleRate / outputFormat.sampleRate;
+    final matrix = ChannelMatrix(clip.format.channels, outputFormat.channels);
     for (var frame = 0; frame < outputFrames; frame++) {
       if (_sourceFrame >= sourceFrames) {
         if (looping) {
@@ -395,16 +398,8 @@ final class MixerVoice {
         }
       }
 
-      final first = _sourceFrame.floor();
-      var second = first + 1;
-      if (second >= sourceFrames) second = looping ? 0 : first;
-      final fraction = _sourceFrame - first;
-      final outputBase = frame * outputFormat.channels;
-      for (var channel = 0; channel < outputFormat.channels; channel++) {
-        final a = _sampleAt(first, channel, outputFormat.channels);
-        final b = _sampleAt(second, channel, outputFormat.channels);
-        output[outputBase + channel] += (a + (b - a) * fraction) * _gain;
-      }
+      _readLinear();
+      matrix.mixInto(_resampled, output, frame * outputFormat.channels, _gain);
       _sourceFrame += ratio;
     }
     if (_sourceFrame >= sourceFrames) {
@@ -417,27 +412,16 @@ final class MixerVoice {
     }
   }
 
-  double _sampleAt(int frame, int outputChannel, int outputChannels) {
-    final sourceChannels = clip.format.channels;
-    final base = frame * sourceChannels;
-    if (sourceChannels == outputChannels) {
-      return clip.samples[base + outputChannel].toDouble();
+  void _readLinear() {
+    final channels = clip.format.channels;
+    final first = _sourceFrame.floor();
+    var second = first + 1;
+    if (second >= clip.frameCount) second = looping ? 0 : first;
+    final fraction = _sourceFrame - first;
+    for (var channel = 0; channel < channels; channel++) {
+      final a = clip.samples[first * channels + channel].toDouble();
+      final b = clip.samples[second * channels + channel].toDouble();
+      _resampled[channel] = a + (b - a) * fraction;
     }
-    if (sourceChannels < outputChannels) {
-      return clip.samples[base + (outputChannel % sourceChannels)].toDouble();
-    }
-    // Fold the extra source channels onto the outputs instead of dropping
-    // them; a mono output averages every channel.
-    var sum = 0.0;
-    var count = 0;
-    for (
-      var channel = outputChannel;
-      channel < sourceChannels;
-      channel += outputChannels
-    ) {
-      sum += clip.samples[base + channel];
-      count++;
-    }
-    return sum / count;
   }
 }

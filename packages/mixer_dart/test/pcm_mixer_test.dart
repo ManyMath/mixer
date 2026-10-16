@@ -48,7 +48,9 @@ void main() {
       ..play(
         PcmClip(samples: Int16List.fromList([0, 0, 1000, 3000]), format: quad),
       );
-    expect(decode(mixer.mix(frameCount: 1)), [500, 1500]);
+    // Quad is FL FR BL BR; each rear folds in at sqrt(1/2) before the row is
+    // normalized, so it lands at 0.4142 of its level.
+    expect(decode(mixer.mix(frameCount: 1)), [414, 1243]);
   });
 
   test('linearly resamples a clip onto the output clock', () {
