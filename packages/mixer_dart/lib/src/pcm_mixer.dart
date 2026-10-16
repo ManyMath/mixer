@@ -25,7 +25,8 @@ final class PcmMixer {
          format.sampleRate *
              chunk.inMicroseconds ~/
              Duration.microsecondsPerSecond,
-       );
+       ),
+       _timerPeriod = Duration(milliseconds: math.max(1, chunk.inMilliseconds));
 
   /// Format emitted by [frames] and [mix].
   final PcmFormat format;
@@ -37,11 +38,12 @@ final class PcmMixer {
   final bool realtime;
 
   final int _chunkFrames;
+  final Duration _timerPeriod;
   final List<MixerVoice> _voices = <MixerVoice>[];
   final StreamController<Uint8List> _controller =
       StreamController<Uint8List>.broadcast();
   Timer? _timer;
-  int _ticksHandled = 0;
+  int _chunksHandled = 0;
   int _frameRemainder = 0;
   bool _disposed = false;
   double _masterGain = 1;
@@ -130,15 +132,19 @@ final class PcmMixer {
 
   void _startTimer() {
     if (_timer != null || _disposed) return;
-    _ticksHandled = 0;
+    _chunksHandled = 0;
     _frameRemainder = 0;
-    _timer = Timer.periodic(chunk, _tick);
+    _timer = Timer.periodic(_timerPeriod, _tick);
   }
 
   void _tick(Timer timer) {
     if (_disposed) return;
-    var due = timer.tick - _ticksHandled;
-    _ticksHandled = timer.tick;
+    // Timers only run on whole milliseconds, so count chunks from the elapsed
+    // periods rather than assuming one chunk per tick.
+    final chunks =
+        timer.tick * _timerPeriod.inMicroseconds ~/ chunk.inMicroseconds;
+    var due = chunks - _chunksHandled;
+    _chunksHandled = chunks;
     if (due > _maxCatchUpChunks) due = _maxCatchUpChunks;
     for (var i = 0; i < due && _hasPlayableVoice; i++) {
       final frames = _nextChunkFrames();

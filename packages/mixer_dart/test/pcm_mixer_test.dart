@@ -167,4 +167,28 @@ void main() {
       async.flushMicrotasks();
     });
   });
+
+  test('real-time output keeps pace with a non-millisecond chunk', () async {
+    // Real timers round periods to whole milliseconds and fake_async does not,
+    // so this one runs on the wall clock.
+    const format = PcmFormat(sampleRate: 48000, channels: 1);
+    final mixer = PcmMixer(
+      format: format,
+      chunk: const Duration(microseconds: 10667), // 512 frames
+    );
+    var frames = 0;
+    mixer.frames.listen((chunk) => frames += chunk.length ~/ 2);
+    final elapsed = Stopwatch()..start();
+    mixer.play(
+      PcmClip(samples: Int16List(format.sampleRate), format: format),
+      looping: true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await mixer.dispose();
+    final due =
+        elapsed.elapsedMicroseconds *
+        format.sampleRate ~/
+        Duration.microsecondsPerSecond;
+    expect(frames, inInclusiveRange(due ~/ 2, due + 512));
+  });
 }
