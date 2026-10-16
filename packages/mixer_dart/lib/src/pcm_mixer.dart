@@ -11,9 +11,10 @@ enum MixerVoiceState { playing, paused, stopped, completed, disposed }
 /// A reusable, device-independent PCM clip mixer.
 ///
 /// [play] starts an independent voice. In real-time mode (the default), mixed
-/// S16LE chunks are emitted on [frames] using [chunk] as the audio clock. In
-/// manual mode callers use [mix] to pull exact frame counts, which is useful
-/// for offline rendering and deterministic tests.
+/// S16LE chunks are emitted on [frames] using [chunk] as the audio clock, or
+/// as an attached device clock pulls them (see [attachClock]). In manual mode
+/// callers use [mix] to pull exact frame counts, which is useful for offline
+/// rendering and deterministic tests.
 final class PcmMixer {
   PcmMixer({
     this.format = const PcmFormat(),
@@ -34,7 +35,8 @@ final class PcmMixer {
   /// Target duration of each real-time output chunk.
   final Duration chunk;
 
-  /// Whether [play] drives [frames] from a periodic timer.
+  /// Whether [play] drives [frames] from a periodic timer while no
+  /// [MixerClock] is attached.
   final bool realtime;
 
   final int _chunkFrames;
@@ -43,6 +45,7 @@ final class PcmMixer {
   final StreamController<Uint8List> _controller =
       StreamController<Uint8List>.broadcast();
   Timer? _timer;
+  MixerClock? _clock;
   int _chunksHandled = 0;
   int _frameRemainder = 0;
   bool _disposed = false;
@@ -55,7 +58,8 @@ final class PcmMixer {
   /// In real-time mode chunks are only emitted while at least one voice is
   /// playing; the stream goes quiet rather than carrying silence when every
   /// voice is paused or finished. Consumers that need a continuous signal
-  /// must fill those gaps themselves.
+  /// must fill those gaps themselves. While a [MixerClock] is attached, the
+  /// chunks are the ones it pulls, at its pace and in its chunk sizes.
   Stream<Uint8List> get frames => _controller.stream;
 
   /// Live voices, including paused voices, as a read-only snapshot.
@@ -125,6 +129,37 @@ final class PcmMixer {
     return (out, finished);
   }
 
+  /// Drives the mixer from an external audio clock, such as a capture device,
+  /// in place of the real-time timer.
+  ///
+  /// While the returned clock is attached, voices advance only as
+  /// [MixerClock.pull] mixes frames, so they stay in step with that clock no
+  /// matter how far it drifts from the system timer. Returns null when another
+  /// clock is already attached.
+  MixerClock? attachClock() {
+    if (_disposed) throw StateError('PcmMixer has been disposed');
+    if (_clock != null) return null;
+    _stopTimer();
+    return _clock = MixerClock._(this);
+  }
+
+  Uint8List _pull(int frames) {
+    final playing = _hasPlayableVoice;
+    // Same order as the timer: emit the chunk, then resolve onComplete.
+    final (out, finished) = _mix(frames);
+    if (playing && !_controller.isClosed) _controller.add(out);
+    for (final voice in finished) {
+      voice._signalComplete();
+    }
+    return out;
+  }
+
+  void _detach(MixerClock clock) {
+    if (!identical(_clock, clock)) return;
+    _clock = null;
+    if (realtime && _hasPlayableVoice) _startTimer();
+  }
+
   /// Stops all active and paused voices.
   void stopAll() {
     for (final voice in List<MixerVoice>.of(_voices)) {
@@ -139,6 +174,8 @@ final class PcmMixer {
     if (_disposed) return;
     _disposed = true;
     _stopTimer();
+    _clock?._attached = false;
+    _clock = null;
     for (final voice in List<MixerVoice>.of(_voices)) {
       voice.dispose();
     }
@@ -148,7 +185,7 @@ final class PcmMixer {
   }
 
   void _startTimer() {
-    if (_timer != null || _disposed) return;
+    if (_timer != null || _disposed || _clock != null) return;
     _chunksHandled = 0;
     _frameRemainder = 0;
     _timer = Timer.periodic(_timerPeriod, _tick);
@@ -202,6 +239,39 @@ final class PcmMixer {
   void _stopTimer() {
     _timer?.cancel();
     _timer = null;
+  }
+}
+
+/// An external clock driving a [PcmMixer]; see [PcmMixer.attachClock].
+final class MixerClock {
+  MixerClock._(this._mixer);
+
+  final PcmMixer _mixer;
+  bool _attached = true;
+
+  /// Whether this clock still drives its mixer.
+  bool get isAttached => _attached;
+
+  /// Mixes, advances, and returns the next [frameCount] frames.
+  ///
+  /// While a voice is playing the chunk is also emitted on [PcmMixer.frames],
+  /// so other listeners hear the same audio. After [detach], or once the mixer
+  /// is disposed, this returns silence.
+  Uint8List pull(int frameCount) {
+    if (frameCount < 0) {
+      throw ArgumentError.value(frameCount, 'frameCount', 'must be >= 0');
+    }
+    if (!_attached || _mixer._disposed) {
+      return Uint8List(frameCount * _mixer.format.bytesPerFrame);
+    }
+    return _mixer._pull(frameCount);
+  }
+
+  /// Hands the mixer back to its real-time timer. Idempotent.
+  void detach() {
+    if (!_attached) return;
+    _attached = false;
+    _mixer._detach(this);
   }
 }
 

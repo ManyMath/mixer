@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fake_async/fake_async.dart';
@@ -208,5 +209,77 @@ void main() {
         format.sampleRate ~/
         Duration.microsecondsPerSecond;
     expect(frames, inInclusiveRange(due ~/ 2, due + 512));
+  });
+
+  group('attached clock', () {
+    const format = PcmFormat(sampleRate: 8000, channels: 1);
+
+    test('replaces the timer: voices advance only as it pulls', () {
+      fakeAsync((async) {
+        final mixer = PcmMixer(format: format);
+        final emitted = <int>[];
+        mixer.frames.listen((chunk) => emitted.add(chunk.length ~/ 2));
+        final clock = mixer.attachClock()!;
+        final voice = mixer.play(
+          PcmClip(samples: Int16List(format.sampleRate), format: format),
+        );
+
+        async.elapse(const Duration(seconds: 1));
+        expect(emitted, isEmpty);
+        expect(voice.position, Duration.zero);
+
+        expect(clock.pull(80).length, 160);
+        async.flushMicrotasks();
+        expect(emitted, [80]);
+        expect(voice.position, const Duration(milliseconds: 10));
+        mixer.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('is exclusive until detached, then the timer resumes', () {
+      fakeAsync((async) {
+        final mixer = PcmMixer(format: format);
+        var emitted = 0;
+        mixer.frames.listen((chunk) => emitted += chunk.length ~/ 2);
+        final clock = mixer.attachClock()!;
+        expect(mixer.attachClock(), isNull);
+        mixer.play(
+          PcmClip(samples: Int16List(format.sampleRate), format: format),
+        );
+
+        clock.detach();
+        expect(clock.isAttached, isFalse);
+        async.elapse(const Duration(milliseconds: 100));
+        expect(emitted, 800);
+        expect(mixer.attachClock(), isNotNull);
+        mixer.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('emits a voice\'s last chunk before resolving onComplete', () async {
+      final mixer = PcmMixer(format: format);
+      final clock = mixer.attachClock()!;
+      final events = <String>[];
+      mixer.frames.listen((_) => events.add('chunk'));
+      final voice = mixer.play(
+        PcmClip(samples: Int16List.fromList([1, 2, 3]), format: format),
+      );
+      unawaited(voice.onComplete.then((_) => events.add('complete')));
+
+      expect(decode(clock.pull(4)), [1, 2, 3, 0]);
+      await Future<void>.delayed(Duration.zero);
+      expect(events, ['chunk', 'complete']);
+      await mixer.dispose();
+    });
+
+    test('pulls silence once the mixer is disposed', () async {
+      final mixer = PcmMixer(format: const PcmFormat(channels: 2));
+      final clock = mixer.attachClock()!;
+      await mixer.dispose();
+      expect(clock.isAttached, isFalse);
+      expect(clock.pull(10), Uint8List(40));
+    });
   });
 }
