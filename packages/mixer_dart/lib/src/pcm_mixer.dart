@@ -51,6 +51,11 @@ final class PcmMixer {
   static const int _maxCatchUpChunks = 6;
 
   /// Mixed interleaved S16LE frames in [format].
+  ///
+  /// In real-time mode chunks are only emitted while at least one voice is
+  /// playing; the stream goes quiet rather than carrying silence when every
+  /// voice is paused or finished. Consumers that need a continuous signal
+  /// must fill those gaps themselves.
   Stream<Uint8List> get frames => _controller.stream;
 
   /// Live voices, including paused voices, as a read-only snapshot.
