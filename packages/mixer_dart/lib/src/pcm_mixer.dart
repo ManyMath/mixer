@@ -5,9 +5,21 @@ import 'dart:typed_data';
 import 'channel_matrix.dart';
 import 'pcm_clip.dart';
 import 'pcm_format.dart';
+import 'sinc_kernel.dart';
 
 /// Lifecycle of one independently controllable mixer voice.
 enum MixerVoiceState { playing, paused, stopped, completed, disposed }
+
+/// How a [PcmMixer] converts clips to its output sample rate.
+enum PcmResampling {
+  /// Kaiser-windowed sinc interpolation, low-passed below the lower of the
+  /// two Nyquist frequencies so downsampling does not alias.
+  sinc,
+
+  /// Linear interpolation between adjacent frames. Cheaper, but it aliases
+  /// when downsampling and leaves images when upsampling.
+  linear,
+}
 
 /// A reusable, device-independent PCM clip mixer.
 ///
@@ -19,6 +31,7 @@ enum MixerVoiceState { playing, paused, stopped, completed, disposed }
 final class PcmMixer {
   PcmMixer({
     this.format = const PcmFormat(),
+    this.resampling = PcmResampling.linear,
     this.chunk = const Duration(milliseconds: 20),
     this.realtime = true,
   }) : assert(chunk > Duration.zero, 'chunk must be positive'),
@@ -32,6 +45,9 @@ final class PcmMixer {
 
   /// Format emitted by [frames] and [mix].
   final PcmFormat format;
+
+  /// How clips whose sample rate differs from [format]'s are converted.
+  final PcmResampling resampling;
 
   /// Target duration of each real-time output chunk.
   final Duration chunk;
@@ -388,6 +404,12 @@ final class MixerVoice {
     }
     final ratio = clip.format.sampleRate / outputFormat.sampleRate;
     final matrix = ChannelMatrix(clip.format.channels, outputFormat.channels);
+    // At the same rate a whole-frame position stays whole: copy, don't filter.
+    final direct =
+        ratio == 1 && _sourceFrame == _sourceFrame.truncateToDouble();
+    final kernel = direct || _mixer.resampling != PcmResampling.sinc
+        ? null
+        : SincKernel(clip.format.sampleRate, outputFormat.sampleRate);
     for (var frame = 0; frame < outputFrames; frame++) {
       if (_sourceFrame >= sourceFrames) {
         if (looping) {
@@ -398,7 +420,19 @@ final class MixerVoice {
         }
       }
 
-      _readLinear();
+      if (direct) {
+        _readFrame();
+      } else if (kernel != null) {
+        kernel.read(
+          clip.samples,
+          clip.format.channels,
+          _sourceFrame,
+          looping,
+          _resampled,
+        );
+      } else {
+        _readLinear();
+      }
       matrix.mixInto(_resampled, output, frame * outputFormat.channels, _gain);
       _sourceFrame += ratio;
     }
@@ -409,6 +443,14 @@ final class MixerVoice {
       } else {
         _completeNaturally();
       }
+    }
+  }
+
+  void _readFrame() {
+    final channels = clip.format.channels;
+    final base = _sourceFrame.toInt() * channels;
+    for (var channel = 0; channel < channels; channel++) {
+      _resampled[channel] = clip.samples[base + channel].toDouble();
     }
   }
 
