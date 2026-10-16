@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:fake_async/fake_async.dart';
@@ -11,6 +12,21 @@ List<int> decode(Uint8List bytes) {
     for (var i = 0; i < bytes.length ~/ 2; i++)
       view.getInt16(i * 2, Endian.little),
   ];
+}
+
+// Mixes a single frame between channel counts at the same rate.
+List<int> mixFrame(List<int> frame, {required int from, required int to}) {
+  final mixer = PcmMixer(
+    format: PcmFormat(sampleRate: 8000, channels: to),
+    realtime: false,
+  );
+  mixer.play(
+    PcmClip(
+      samples: Int16List.fromList(frame),
+      format: PcmFormat(sampleRate: 8000, channels: from),
+    ),
+  );
+  return decode(mixer.mix(frameCount: 1));
 }
 
 void main() {
@@ -51,6 +67,52 @@ void main() {
     // Quad is FL FR BL BR; each rear folds in at sqrt(1/2) before the row is
     // normalized, so it lands at 0.4142 of its level.
     expect(decode(mixer.mix(frameCount: 1)), [414, 1243]);
+  });
+
+  test('a 5.1 center reaches both stereo channels equally', () {
+    final out = mixFrame([0, 0, 10000, 0, 0, 0], from: 6, to: 2);
+    expect(out[0], greaterThan(0));
+    expect(out[1], out[0]);
+  });
+
+  test('LFE is left out of a stereo down-mix', () {
+    expect(mixFrame([0, 0, 0, 20000, 0, 0], from: 6, to: 2), [0, 0]);
+  });
+
+  test('5.1 down-mixes to mono as the mean of its stereo fold-down', () {
+    const s = math.sqrt1_2;
+    const left = (1000 + 3000 * s + 5000 * s) / (1 + 2 * s);
+    const right = (2000 + 3000 * s + 6000 * s) / (1 + 2 * s);
+    expect(mixFrame([1000, 2000, 3000, 4000, 5000, 6000], from: 6, to: 1), [
+      ((left + right) / 2).round(),
+    ]);
+  });
+
+  test('stereo up-mixes to the 5.1 front pair only', () {
+    expect(mixFrame([1000, 2000], from: 2, to: 6), [1000, 2000, 0, 0, 0, 0]);
+  });
+
+  test('mono up-mixes to the 5.1 center only', () {
+    expect(mixFrame([1000], from: 1, to: 6), [0, 0, 1000, 0, 0, 0]);
+  });
+
+  test('7.1 folds its side pair into the 5.1 front pair', () {
+    expect(
+      mixFrame([100, 200, 300, 400, 500, 600, 7000, 8000], from: 8, to: 6),
+      [
+        (100 + 7000 * math.sqrt1_2).round(),
+        (200 + 8000 * math.sqrt1_2).round(),
+        300,
+        400,
+        500,
+        600,
+      ],
+    );
+  });
+
+  test('channels without a known layout are averaged', () {
+    final frame = [for (var i = 0; i < 10; i++) i * 100];
+    expect(mixFrame(frame, from: 10, to: 2), [450, 450]);
   });
 
   test('linearly resamples a clip onto the output clock', () {
