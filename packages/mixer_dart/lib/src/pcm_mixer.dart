@@ -72,6 +72,7 @@ final class PcmMixer {
     _voices.add(voice);
     if (clip.frameCount == 0) {
       voice._completeNaturally();
+      voice._signalComplete();
       _voices.remove(voice);
     } else if (realtime) {
       _startTimer();
@@ -90,10 +91,21 @@ final class PcmMixer {
     if (frames < 0) {
       throw ArgumentError.value(frames, 'frameCount', 'must be >= 0');
     }
+    final (out, finished) = _mix(frames);
+    for (final voice in finished) {
+      voice._signalComplete();
+    }
+    return out;
+  }
+
+  (Uint8List, List<MixerVoice>) _mix(int frames) {
     final acc = Float64List(frames * format.channels);
     for (final voice in List<MixerVoice>.of(_voices)) {
       voice._mixInto(acc, frames, format);
     }
+    final finished = _voices
+        .where((voice) => voice.state == MixerVoiceState.completed)
+        .toList();
     _voices.removeWhere((voice) => voice._isTerminal);
 
     final out = Uint8List(acc.length * 2);
@@ -105,7 +117,7 @@ final class PcmMixer {
       final scaled = value.isNaN ? 0 : value.clamp(-32768.0, 32767.0).round();
       view.setInt16(i * 2, scaled, Endian.little);
     }
-    return out;
+    return (out, finished);
   }
 
   /// Stops all active and paused voices.
@@ -149,7 +161,13 @@ final class PcmMixer {
     for (var i = 0; i < due && _hasPlayableVoice; i++) {
       final frames = _nextChunkFrames();
       if (frames > 0 && !_controller.isClosed) {
-        _controller.add(mix(frameCount: frames));
+        // Queue the chunk before resolving onComplete for voices that ended
+        // in it, so listeners never hear about the end ahead of the audio.
+        final (out, finished) = _mix(frames);
+        _controller.add(out);
+        for (final voice in finished) {
+          voice._signalComplete();
+        }
       }
     }
     if (!_hasPlayableVoice) _stopTimer();
@@ -264,7 +282,7 @@ final class MixerVoice {
     if (_state == MixerVoiceState.disposed) return;
     _state = MixerVoiceState.disposed;
     _mixer._remove(this);
-    if (!_completion.isCompleted) _completion.complete();
+    _signalComplete();
   }
 
   bool get _isTerminal =>
@@ -276,6 +294,11 @@ final class MixerVoice {
     // Resampling can step past the last frame; stop [position] at the end.
     _sourceFrame = clip.frameCount.toDouble();
     _state = MixerVoiceState.completed;
+  }
+
+  // Kept apart from [_completeNaturally] so the mixer can emit the final
+  // chunk before resolving [onComplete].
+  void _signalComplete() {
     if (!_completion.isCompleted) _completion.complete();
   }
 

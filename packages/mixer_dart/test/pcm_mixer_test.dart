@@ -168,6 +168,24 @@ void main() {
     });
   });
 
+  test('a voice completes after its last chunk is emitted', () {
+    const format = PcmFormat(sampleRate: 8000, channels: 1);
+    fakeAsync((async) {
+      final mixer = PcmMixer(format: format);
+      final events = <String>[];
+      mixer.frames.listen((_) => events.add('chunk'));
+      // 240 frames span two 20 ms chunks of 160.
+      final voice = mixer.play(
+        PcmClip(samples: Int16List(240), format: format),
+      );
+      voice.onComplete.then((_) => events.add('complete'));
+      async.elapse(const Duration(milliseconds: 100));
+      expect(events, ['chunk', 'chunk', 'complete']);
+      mixer.dispose();
+      async.flushMicrotasks();
+    });
+  });
+
   test('real-time output keeps pace with a non-millisecond chunk', () async {
     // Real timers round periods to whole milliseconds and fake_async does not,
     // so this one runs on the wall clock.
