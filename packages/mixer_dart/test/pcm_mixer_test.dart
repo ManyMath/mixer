@@ -91,6 +91,16 @@ void main() {
     expect(decode(mixer.mix(frameCount: 2)), [500, 500]);
   });
 
+  test('extreme finite gains clamp instead of throwing', () {
+    const format = PcmFormat(sampleRate: 8000, channels: 1);
+    final mixer = PcmMixer(format: format, realtime: false)..masterGain = 1e300;
+    mixer.play(
+      PcmClip(samples: Int16List.fromList([32767, -32768]), format: format),
+      gain: 1e10,
+    );
+    expect(decode(mixer.mix(frameCount: 2)), [32767, -32768]);
+  });
+
   test('real-time chunks carry fractional frames instead of drifting', () {
     // 11025 Hz * 20 ms is 220.5 frames per chunk.
     const format = PcmFormat(sampleRate: 11025, channels: 1);
