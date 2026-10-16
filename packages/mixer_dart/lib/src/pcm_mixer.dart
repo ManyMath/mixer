@@ -319,14 +319,21 @@ final class MixerVoice {
     if (sourceChannels == outputChannels) {
       return clip.samples[base + outputChannel].toDouble();
     }
-    if (sourceChannels == 1) return clip.samples[base].toDouble();
-    if (outputChannels == 1) {
-      var sum = 0.0;
-      for (var channel = 0; channel < sourceChannels; channel++) {
-        sum += clip.samples[base + channel];
-      }
-      return sum / sourceChannels;
+    if (sourceChannels < outputChannels) {
+      return clip.samples[base + (outputChannel % sourceChannels)].toDouble();
     }
-    return clip.samples[base + (outputChannel % sourceChannels)].toDouble();
+    // Fold the extra source channels onto the outputs instead of dropping
+    // them; a mono output averages every channel.
+    var sum = 0.0;
+    var count = 0;
+    for (
+      var channel = outputChannel;
+      channel < sourceChannels;
+      channel += outputChannels
+    ) {
+      sum += clip.samples[base + channel];
+      count++;
+    }
+    return sum / count;
   }
 }

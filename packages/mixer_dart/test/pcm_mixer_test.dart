@@ -40,6 +40,16 @@ void main() {
     expect(decode(down.mix(frameCount: 1)), [2000]);
   });
 
+  test('down-mixes extra channels into a multi-channel output', () {
+    const quad = PcmFormat(sampleRate: 8000, channels: 4);
+    const stereo = PcmFormat(sampleRate: 8000, channels: 2);
+    final mixer = PcmMixer(format: stereo, realtime: false)
+      ..play(
+        PcmClip(samples: Int16List.fromList([0, 0, 1000, 3000]), format: quad),
+      );
+    expect(decode(mixer.mix(frameCount: 1)), [500, 1500]);
+  });
+
   test('linearly resamples a clip onto the output clock', () {
     const source = PcmFormat(sampleRate: 2, channels: 1);
     const output = PcmFormat(sampleRate: 4, channels: 1);
