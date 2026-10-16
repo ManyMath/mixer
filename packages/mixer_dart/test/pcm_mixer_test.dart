@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:mixer_dart/mixer_dart.dart';
 import 'package:test/test.dart';
 
@@ -88,5 +89,23 @@ void main() {
       PcmClip(samples: Int16List.fromList([1000, 1000]), format: format),
     );
     expect(decode(mixer.mix(frameCount: 2)), [500, 500]);
+  });
+
+  test('real-time chunks carry fractional frames instead of drifting', () {
+    // 11025 Hz * 20 ms is 220.5 frames per chunk.
+    const format = PcmFormat(sampleRate: 11025, channels: 1);
+    fakeAsync((async) {
+      final mixer = PcmMixer(format: format);
+      var frames = 0;
+      mixer.frames.listen((chunk) => frames += chunk.length ~/ 2);
+      mixer.play(
+        PcmClip(samples: Int16List(format.sampleRate), format: format),
+        looping: true,
+      );
+      async.elapse(const Duration(seconds: 10));
+      expect(frames, 10 * format.sampleRate);
+      mixer.dispose();
+      async.flushMicrotasks();
+    });
   });
 }

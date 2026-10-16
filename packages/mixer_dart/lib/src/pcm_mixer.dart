@@ -42,6 +42,7 @@ final class PcmMixer {
       StreamController<Uint8List>.broadcast();
   Timer? _timer;
   int _ticksHandled = 0;
+  int _frameRemainder = 0;
   bool _disposed = false;
   double _masterGain = 1;
 
@@ -126,6 +127,7 @@ final class PcmMixer {
   void _startTimer() {
     if (_timer != null || _disposed) return;
     _ticksHandled = 0;
+    _frameRemainder = 0;
     _timer = Timer.periodic(chunk, _tick);
   }
 
@@ -135,9 +137,21 @@ final class PcmMixer {
     _ticksHandled = timer.tick;
     if (due > _maxCatchUpChunks) due = _maxCatchUpChunks;
     for (var i = 0; i < due && _hasPlayableVoice; i++) {
-      if (!_controller.isClosed) _controller.add(mix());
+      final frames = _nextChunkFrames();
+      if (frames > 0 && !_controller.isClosed) {
+        _controller.add(mix(frameCount: frames));
+      }
     }
     if (!_hasPlayableVoice) _stopTimer();
+  }
+
+  // A chunk rarely holds a whole number of frames (11025 Hz * 20 ms = 220.5),
+  // so carry the remainder instead of letting the clock run slow.
+  int _nextChunkFrames() {
+    _frameRemainder += chunk.inMicroseconds * format.sampleRate;
+    final frames = _frameRemainder ~/ Duration.microsecondsPerSecond;
+    _frameRemainder -= frames * Duration.microsecondsPerSecond;
+    return frames;
   }
 
   bool get _hasPlayableVoice =>
