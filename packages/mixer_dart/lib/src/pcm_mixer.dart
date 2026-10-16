@@ -31,7 +31,7 @@ enum PcmResampling {
 final class PcmMixer {
   PcmMixer({
     this.format = const PcmFormat(),
-    this.resampling = PcmResampling.linear,
+    this.resampling = PcmResampling.sinc,
     this.chunk = const Duration(milliseconds: 20),
     this.realtime = true,
   }) : assert(chunk > Duration.zero, 'chunk must be positive'),

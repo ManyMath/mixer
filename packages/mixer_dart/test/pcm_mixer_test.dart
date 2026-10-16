@@ -151,12 +151,12 @@ void main() {
   test('linearly resamples a clip onto the output clock', () {
     const source = PcmFormat(sampleRate: 2, channels: 1);
     const output = PcmFormat(sampleRate: 4, channels: 1);
-    final mixer = PcmMixer(format: output, realtime: false)
-      ..play(
-        PcmClip(samples: Int16List.fromList([0, 1000, 2000]), format: source),
-      );
-
-    expect(decode(mixer.mix(frameCount: 6)), [0, 500, 1000, 1500, 2000, 2000]);
+    final clip = PcmClip(
+      samples: Int16List.fromList([0, 1000, 2000]),
+      format: source,
+    );
+    final out = render(clip, output, 6, resampling: PcmResampling.linear);
+    expect(out, [0, 500, 1000, 1500, 2000, 2000]);
   });
 
   test('sinc resampling passes a same-rate clip through exactly', () {
