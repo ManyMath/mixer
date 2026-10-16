@@ -91,6 +91,18 @@ void main() {
     expect(decode(mixer.mix(frameCount: 2)), [500, 500]);
   });
 
+  test('a looping voice reports a position within its clip', () {
+    const source = PcmFormat(sampleRate: 16000, channels: 1);
+    const output = PcmFormat(sampleRate: 8000, channels: 1);
+    final mixer = PcmMixer(format: output, realtime: false);
+    final voice = mixer.play(
+      PcmClip(samples: Int16List(3), format: source),
+      looping: true,
+    );
+    mixer.mix(frameCount: 2);
+    expect(voice.position, lessThanOrEqualTo(voice.duration));
+  });
+
   test('extreme finite gains clamp instead of throwing', () {
     const format = PcmFormat(sampleRate: 8000, channels: 1);
     final mixer = PcmMixer(format: format, realtime: false)..masterGain = 1e300;

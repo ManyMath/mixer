@@ -298,7 +298,14 @@ final class MixerVoice {
       }
       _sourceFrame += ratio;
     }
-    if (!looping && _sourceFrame >= sourceFrames) _completeNaturally();
+    if (_sourceFrame >= sourceFrames) {
+      if (looping) {
+        // Wrap now so [position] never reports past the end between mixes.
+        _sourceFrame %= sourceFrames;
+      } else {
+        _completeNaturally();
+      }
+    }
   }
 
   double _sampleAt(int frame, int outputChannel, int outputChannels) {
