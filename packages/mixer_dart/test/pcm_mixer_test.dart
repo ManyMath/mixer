@@ -14,6 +14,39 @@ List<int> decode(Uint8List bytes) {
   ];
 }
 
+Int16List sine(double hz, int sampleRate, int frames) => Int16List.fromList([
+  for (var i = 0; i < frames; i++)
+    (10000 * math.sin(2 * math.pi * hz * i / sampleRate)).round(),
+]);
+
+double rms(List<int> samples) {
+  var sum = 0.0;
+  for (final sample in samples) {
+    sum += sample * sample;
+  }
+  return math.sqrt(sum / samples.length);
+}
+
+double decibels(double ratio) => 20 * math.log(ratio) / math.ln10;
+
+const mono48k = PcmFormat(sampleRate: 48000, channels: 1);
+
+// Plays [clip] alone and renders [frames] frames of [output].
+List<int> render(
+  PcmClip clip,
+  PcmFormat output,
+  int frames, {
+  PcmResampling resampling = PcmResampling.sinc,
+  bool looping = false,
+}) {
+  final mixer = PcmMixer(
+    format: output,
+    realtime: false,
+    resampling: resampling,
+  )..play(clip, looping: looping);
+  return decode(mixer.mix(frameCount: frames));
+}
+
 // Mixes a single frame between channel counts at the same rate.
 List<int> mixFrame(List<int> frame, {required int from, required int to}) {
   final mixer = PcmMixer(
@@ -124,6 +157,63 @@ void main() {
       );
 
     expect(decode(mixer.mix(frameCount: 6)), [0, 500, 1000, 1500, 2000, 2000]);
+  });
+
+  test('sinc resampling passes a same-rate clip through exactly', () {
+    const format = PcmFormat(sampleRate: 48000, channels: 2);
+    final samples = Int16List.fromList([1, -2, 300, -400, 32767, -32768]);
+    final clip = PcmClip(samples: samples, format: format);
+    expect(render(clip, format, 6, looping: true), [...samples, ...samples]);
+  });
+
+  test('sinc resampling keeps a DC level away from the edges', () {
+    final clip = PcmClip(
+      samples: Int16List(4800)..fillRange(0, 4800, 10000),
+      format: mono48k,
+    );
+    final out = render(clip, const PcmFormat(sampleRate: 44100), 4410);
+    expect(out.sublist(100, 4300), everyElement(10000));
+  });
+
+  test('sinc resampling keeps a passband tone at its level', () {
+    final input = sine(1000, 48000, 48000);
+    final clip = PcmClip(samples: input, format: mono48k);
+    final out = render(clip, const PcmFormat(sampleRate: 16000), 16000);
+    final level = rms(out.sublist(1600, 14400)) / rms(input);
+    expect(decibels(level), closeTo(0, 1));
+  });
+
+  test('sinc resampling rejects a tone above the output Nyquist frequency', () {
+    // 7 kHz on an 8 kHz bus would alias to 1 kHz.
+    final input = sine(7000, 48000, 48000);
+    final clip = PcmClip(samples: input, format: mono48k);
+    double level(PcmResampling resampling) {
+      final out = render(
+        clip,
+        const PcmFormat(sampleRate: 8000),
+        8000,
+        resampling: resampling,
+      );
+      return rms(out.sublist(800, 7200)) / rms(input);
+    }
+
+    expect(decibels(level(PcmResampling.sinc)), lessThan(-40));
+    expect(decibels(level(PcmResampling.linear)), greaterThan(-6));
+  });
+
+  test('a looping sinc-resampled clip has no seam at the wrap', () {
+    // Ten whole periods, so the looped tone is continuous.
+    final clip = PcmClip(samples: sine(1000, 48000, 480), format: mono48k);
+    final out = render(
+      clip,
+      const PcmFormat(sampleRate: 44100),
+      4410,
+      looping: true,
+    );
+    final expected = sine(1000, 44100, 4410);
+    for (var i = 0; i < out.length; i++) {
+      expect(out[i], closeTo(expected[i], 3), reason: 'frame $i');
+    }
   });
 
   test(
