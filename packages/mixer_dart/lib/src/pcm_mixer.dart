@@ -265,6 +265,8 @@ final class MixerVoice {
       _state == MixerVoiceState.disposed;
 
   void _completeNaturally() {
+    // Resampling can step past the last frame; stop [position] at the end.
+    _sourceFrame = clip.frameCount.toDouble();
     _state = MixerVoiceState.completed;
     if (!_completion.isCompleted) _completion.complete();
   }

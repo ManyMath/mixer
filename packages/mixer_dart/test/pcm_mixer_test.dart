@@ -110,6 +110,16 @@ void main() {
     expect(voice.position, lessThanOrEqualTo(voice.duration));
   });
 
+  test('a finished resampled voice reports its duration as position', () {
+    const source = PcmFormat(sampleRate: 44100, channels: 1);
+    const output = PcmFormat(sampleRate: 48000, channels: 1);
+    final mixer = PcmMixer(format: output, realtime: false);
+    final voice = mixer.play(PcmClip(samples: Int16List(441), format: source));
+    mixer.mix(frameCount: 1000);
+    expect(voice.state, MixerVoiceState.completed);
+    expect(voice.position, voice.duration);
+  });
+
   test('extreme finite gains clamp instead of throwing', () {
     const format = PcmFormat(sampleRate: 8000, channels: 1);
     final mixer = PcmMixer(format: format, realtime: false)..masterGain = 1e300;
