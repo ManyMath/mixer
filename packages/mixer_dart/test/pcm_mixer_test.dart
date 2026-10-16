@@ -91,6 +91,13 @@ void main() {
     expect(decode(mixer.mix(frameCount: 2)), [500, 500]);
   });
 
+  test('dispose does not wait for a paused frames listener', () async {
+    final mixer = PcmMixer();
+    final subscription = mixer.frames.listen((_) {})..pause();
+    await mixer.dispose().timeout(const Duration(seconds: 1));
+    await subscription.cancel();
+  });
+
   test('a looping voice reports a position within its clip', () {
     const source = PcmFormat(sampleRate: 16000, channels: 1);
     const output = PcmFormat(sampleRate: 8000, channels: 1);

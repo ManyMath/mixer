@@ -122,7 +122,8 @@ final class PcmMixer {
       voice.dispose();
     }
     _voices.clear();
-    await _controller.close();
+    // A broadcast close() waits for paused listeners; do not hang on them.
+    unawaited(_controller.close());
   }
 
   void _startTimer() {
