@@ -98,7 +98,9 @@ final class PcmMixer {
     final view = ByteData.sublistView(out);
     for (var i = 0; i < acc.length; i++) {
       // Clamp before rounding: an extreme gain can push the sum to infinity.
-      final scaled = (acc[i] * _masterGain).clamp(-32768.0, 32767.0).round();
+      // Infinity times zero is NaN, which clamp() would send to full scale.
+      final value = acc[i] * _masterGain;
+      final scaled = value.isNaN ? 0 : value.clamp(-32768.0, 32767.0).round();
       view.setInt16(i * 2, scaled, Endian.little);
     }
     return out;

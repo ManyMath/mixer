@@ -130,6 +130,16 @@ void main() {
     expect(decode(mixer.mix(frameCount: 2)), [32767, -32768]);
   });
 
+  test('a muted mix stays silent when a voice gain overflows', () {
+    const format = PcmFormat(sampleRate: 8000, channels: 1);
+    final mixer = PcmMixer(format: format, realtime: false)..masterGain = 0;
+    mixer.play(
+      PcmClip(samples: Int16List.fromList([32767]), format: format),
+      gain: 1e305,
+    );
+    expect(decode(mixer.mix(frameCount: 1)), [0]);
+  });
+
   test('real-time chunks carry fractional frames instead of drifting', () {
     // 11025 Hz * 20 ms is 220.5 frames per chunk.
     const format = PcmFormat(sampleRate: 11025, channels: 1);
