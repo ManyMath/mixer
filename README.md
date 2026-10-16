@@ -3,10 +3,18 @@
 Reusable, pure-Dart PCM mixing for ManyMath audio projects.
 
 `mixer_dart` owns device-independent audio-graph behavior: concurrent clip
-voices, gain, pause/resume/seek/loop controls, channel adaptation, linear sample
-rate conversion, summing, and S16LE output clamping. It intentionally does not
-open microphones or speakers. Packages such as `soundboard` route its output to
-`sound_dart`, `microphone_dart`, virtual devices, files, or network transports.
+voices, gain, pause/resume/seek/loop controls, speaker-layout channel mapping,
+sample rate conversion, summing, and S16LE output clamping. It intentionally
+does not open microphones or speakers. Packages such as `soundboard` route its
+output to `sound_dart`, `microphone_dart`, virtual devices, files, or network
+transports.
+
+Clips are resampled with a Kaiser-windowed sinc filter by default, which
+low-passes below the output's Nyquist frequency so downsampling onto an 8 or
+16 kHz voice bus does not alias. Pass `resampling: PcmResampling.linear` for
+cheaper linear interpolation. Up- and down-mixing assume the WAVE/SMPTE channel
+order for 1 to 8 channels and fold surrounds into stereo ITU-style, without the
+LFE.
 
 ```dart
 final mixer = PcmMixer(

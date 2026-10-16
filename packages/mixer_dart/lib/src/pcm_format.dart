@@ -8,6 +8,10 @@ final class PcmFormat {
   final int sampleRate;
 
   /// Number of interleaved channels.
+  ///
+  /// Channels are assumed to follow the WAVE/SMPTE order for their count,
+  /// such as FL FR FC LFE BL BR for 5.1, when a mixer maps them onto another
+  /// layout. More than 8 channels have no assumed layout.
   final int channels;
 
   /// Bytes occupied by one interleaved frame.

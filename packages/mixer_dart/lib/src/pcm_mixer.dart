@@ -108,9 +108,10 @@ final class PcmMixer {
 
   /// Mixes and advances [frameCount] output frames synchronously.
   ///
-  /// Paused/stopped voices contribute silence. Samples are linearly resampled,
-  /// channel-adapted, summed in floating point, gain-scaled, and clamped once
-  /// at the output edge.
+  /// Paused/stopped voices contribute silence. Samples are resampled as
+  /// [resampling] selects, mapped onto the output channels by speaker layout,
+  /// summed in floating point, gain-scaled, and clamped once at the output
+  /// edge.
   Uint8List mix({int? frameCount}) {
     if (_disposed) throw StateError('PcmMixer has been disposed');
     final frames = frameCount ?? _chunkFrames;
