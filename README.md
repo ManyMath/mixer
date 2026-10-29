@@ -34,5 +34,4 @@ final frames = clock.pull(framesTheDeviceJustDelivered);
 clock.detach(); // back to the timer
 ```
 
-The repository uses the same Dart-workspace and Melos layout as the other
-projects under `~/src/hardware`. CI is intentionally not configured yet.
+The repository uses a Dart workspace with Melos for tooling. CI is not configured yet.

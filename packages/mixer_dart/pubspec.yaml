@@ -1,8 +1,8 @@
 name: mixer_dart
 description: Pure-Dart, real-time PCM clip mixing with resampling and voice controls.
 version: 0.0.1
-publish_to: none
-repository: https://git.manymath.com/sneurlax/mixer
+repository: https://github.com/ManyMath/mixer
+issue_tracker: https://github.com/ManyMath/mixer/issues
 topics:
   - audio
   - mixer
